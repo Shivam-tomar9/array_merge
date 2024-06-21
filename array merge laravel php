@@ -1,0 +1,209 @@
+//Controller
+public function index(request $request)
+    {
+        $search = $request->search_key ?? '';
+        $status = $request->fees_filter ?? '';
+
+
+    
+        // $students =User::where('account_type','Student')
+        // ->where('deleted_at',NULL)
+                         
+        // ->get();
+
+        // $courses = collect();
+
+        // foreach($students as $student)
+        // {
+            
+        //  $studentCourses =Student::where('user_id',$student->id)->get();
+        //  $courses = $courses->merge($studentCourses);
+        
+        // }
+
+
+        $studentss = User::with(['student.courseCategory', 'student.course'])
+        ->withCount([
+            'attendances' => function ($query) {
+                $query->select(\DB::raw('SUM(duration) as total_duration'));
+            }
+        ])
+        ->where('account_type', 'Student')
+        ->where('deleted_at',NULL)
+        ->whereHas('student', function ($query) use ($status) {
+            if ($status) {
+                $query->where('fee_status', $status);
+            }
+        })
+        ->where(function ($query) use ($search) {
+            if ($search) {
+                $query->where('name', 'like', '%' . $search . '%')
+                    ->orWhere('email', 'like', '%' . $search . '%')
+                    ->orWhereHas('student', function ($subQuery) use ($search) {
+                        $subQuery->where('roll_no', 'like', '%' . $search . '%');
+                    });
+            }
+        })
+        
+        ->get();
+
+        
+        $students = [];
+        foreach ($studentss as $student) {
+            $students = array_merge($students, Student::where('user_id', $student->id)->get()->toArray());
+        }
+    
+        
+     
+        return view('students.index', compact('students', 'search', 'status'));
+    }
+
+//blade
+@extends('layouts.master')
+@section('title', 'Students')
+@section('toolbar')
+    @can('tutor-create')
+        <a class="btn btn-primary" href="{{ route('students.create') }}"> {{ __('Enroll Student') }}</a>
+    @endcan
+@endsection
+
+@section('content')
+    <form action="{{ route('students.index') }}" mthod="GET" id="filterForm">
+        <div class="row">
+            <div class="col-md-2">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" placeholder="Search Name or Email..." value="{{ $search }}"
+                        name="search_key" autocomplete="off">
+                    <button class="btn btn-primary" type="submit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                            class="bi bi-search" viewBox="0 0 16 16">
+                            <path
+                                d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <select class="form-select fees-filter" name="fees_filter">
+                    <option value="">{{__('Fee Status')}}</option>
+                    <option value="Paid" @if($status == "Paid") selected @endif>{{__('Paid')}}</option>
+                    <option value="Partially Paid" @if($status == "Partially Paid") selected @endif>{{__('Partially Paid')}}</option>
+                    <option value="Promise Note" @if($status == "Promise Note") selected @endif>{{__('Promise Note')}}</option>
+                </select>
+            </div>
+            @php
+                $currentUrlSegment = request()->segment(1);
+            @endphp
+            @if($currentUrlSegment !='students')
+            <div class="col-md-4">
+            <a href="{{route('students.create')}}">
+                <button type="button" class="btn btn-success">Student Register</button>
+            </a>
+            </div>
+            @endif
+            <div class="col-md-4 text-end">
+                <a href="{{ route('students.index') }}" class="btn btn-secondary" title="{{ __('Refresh') }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                        class="bi bi-arrow-repeat" viewBox="0 0 16 16">
+                        <path
+                            d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41m-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9" />
+                        <path fill-rule="evenodd"
+                            d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5 5 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z" />
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped">
+            <thead class="bg-dark text-white">
+                <tr>
+                    <th style="width:80px">#</th>
+                    <th>@sortablelink('name', 'Name', [], ['class' => 'text-decoration-none text-light'])</th>
+                    <th>@sortablelink('email', 'Email', [], ['class' => 'text-decoration-none text-light'])</th>
+                    <th>@sortablelink('student.roll_no', 'Roll No', [], ['class' => 'text-decoration-none text-light'])</th>
+                    <th>{{ __('Mobile') }}</th>
+                    <th>{{ __('Course Category') }}</th>
+                    <th>{{ __('Course Name') }}</th>
+                    <th>{{ __('Total Hours') }}</th>
+                    <th>{{ __('Fee Status') }}</th>
+                    <th style="width:120px">{{ __('Action') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($students as  $student)
+                    <?php
+                
+                        $user = App\Models\User::find($student['user_id']);
+                        $courseCategory = App\Models\CourseCategory::find($student['category_id']);
+                        $course = App\Models\Course::find($student['course_id']);
+                    ?>
+                    <tr>
+                        <td>{{ ++$loop->index }}</td>
+                        <td class="text-capitalize">{{ $user->name }}</td>
+                        <td>{{ $user->email }}</td>
+                        <td>{{ $student['roll_no'] ?? '' }}</td>
+                        <td>{{ $user->mobile }}</td>
+                        <td>{{ $courseCategory->name ?? ''}}</td>
+                        <td>{{ $course->title ?? '' }}</td>
+                        <td>
+                            @if(isset($student->attendances_count))
+                                {{number_format($student['attendances_count']/60,2)}}
+                            @else
+                                0
+                            @endif
+                        </td>
+                        <td>{{ $student['fee_status'] ?? '' }}</td>
+                        <td>
+                            @can('student-edit')
+                                <a class="btn btn-primary btn-sm" href="{{ route('students.edit', $student['id']) }}"
+                                    title="Edit">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                        class="bi bi-pencil-square" viewBox="0 0 16 16">
+                                        <path
+                                            d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z" />
+                                        <path fill-rule="evenodd"
+                                            d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z" />
+                                    </svg>
+                                </a>
+                            @endcan
+                            @can('student-delete')
+                                {!! Form::open([
+                                    'method' => 'DELETE',
+                                    'route' => ['students.destroy', $student['id']],
+                                    'style' => 'display:inline',
+                                ]) !!}
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirm('Are you sure want to delete this record?');">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                                        class="bi bi-trash3" viewBox="0 0 16 16">
+                                        <path
+                                            d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5M11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H1.5a.5.5 0 0 0 0 1h.538l.853 10.66A2 2 0 0 0 4.885 16h6.23a2 2 0 0 0 1.994-1.84l.853-10.66h.538a.5.5 0 0 0 0-1zm1.958 1-.846 10.58a1 1 0 0 1-.997.92h-6.23a1 1 0 0 1-.997-.92L3.042 3.5zm-7.487 1a.5.5 0 0 1 .528.47l.5 8.5a.5.5 0 0 1-.998.06L5 5.03a.5.5 0 0 1 .47-.53Zm5.058 0a.5.5 0 0 1 .47.53l-.5 8.5a.5.5 0 1 1-.998-.06l.5-8.5a.5.5 0 0 1 .528-.47M8 4.5a.5.5 0 0 1 .5.5v8.5a.5.5 0 0 1-1 0V5a.5.5 0 0 1 .5-.5" />
+                                    </svg>
+                                </button>
+                                {!! Form::close() !!}
+                            @endcan
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="8">{{ __('No any record(s) found!') }}</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+
+
+@endsection
+
+@section('js')
+<script type="text/javascript">
+    $(function() {
+        $('.fees-filter').on('change', function() {
+            $('#filterForm').submit();
+        })
+    });
+</script>
+@endsection
